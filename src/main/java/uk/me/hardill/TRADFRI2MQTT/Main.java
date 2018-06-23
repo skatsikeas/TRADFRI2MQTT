@@ -4,6 +4,7 @@
 package uk.me.hardill.TRADFRI2MQTT;
 
 import static uk.me.hardill.TRADFRI2MQTT.TradfriConstants.*;
+import static uk.me.hardill.TRADFRI2MQTT.config.*;
 
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -79,18 +80,22 @@ public class Main {
 	private HashMap<Integer, BidiMap<Integer,String>> roomID2moods = new HashMap<>();
 	private Vector<CoapObserveRelation> watching = new Vector<>();
 
-	Main(String psk, String ip, String broker, boolean retained) {
+	Main(String coapId, String psk, String ip, String broker, boolean retained) {
 		this.ip = ip;
 		this.retainedQueues = retained;
 		DtlsConnectorConfig.Builder builder = new DtlsConnectorConfig.Builder(new InetSocketAddress(0));
-		builder.setPskStore(new StaticPskStore("", psk.getBytes()));
-		dtlsConnector = new DTLSConnector(builder.build());
+		builder.setPskStore(new StaticPskStore(coapId, psk.getBytes()));
+        dtlsConnector = new DTLSConnector(builder.build());
 		endPoint = new CoapEndpoint(dtlsConnector, NetworkConfig.getStandard());
 
 		MemoryPersistence persistence = new MemoryPersistence();
 		try {
 			mqttClient = new MqttClient(broker, MqttClient.generateClientId(), persistence);
 			MqttConnectOptions opts = new MqttConnectOptions();
+			if (!MQTT_USER.isEmpty())
+				opts.setUserName(MQTT_USER);
+			if (!MQTT_PASS.isEmpty())
+				opts.setPassword(MQTT_PASS.toCharArray());
 			opts.setMaxInflight(200);
 			opts.setAutomaticReconnect(true);
 			mqttClient.connect(opts);
@@ -106,7 +111,7 @@ public class Main {
 					String entityName = parts[2]; // name of bulb or room
 					assert parts[3].equals("control"); // something *really* went wrong if this doesn't hold
 					String command = parts[4];
-
+                    
 					try {
 						JSONObject json = new JSONObject();
 						String payload;
@@ -120,23 +125,28 @@ public class Main {
 							json.put(LIGHT, array);
 
 							switch (command) {
-							case "on":
+							case STATE_COMMAND_NAME:
 								switch (message.toString()) {
-								case "0":
-								case "1":
-									settings.put(ONOFF, Integer.parseInt(message.toString()));
+								case OFF_NAME:
+									settings.put(ONOFF, 0);
+									break;
+								case ON_NAME:
+									settings.put(ONOFF, 1);
 									break;
 								default:
 									System.err.println("Invalid OnOff value '" + message.toString() + "'for bulb " + entityName);
 									return;
 								}
 								break;
-							case "dim":
+							case DIM_COMMAND_NAME:
 								int dimval = Integer.parseInt(message.toString());
+								// Added by Sotirios
+								dimval = Math.round((float) dimval*255/100);
+								//
 								settings.put(DIMMER, Math.min(DIMMER_MAX, Math.max(DIMMER_MIN, dimval)));
 								settings.put(TRANSITION_TIME, 3); // transition in seconds
 								break;
-							case "temperature":
+							case COLOR_COMMAND_NAME:
 								// not sure what the COLOR_X and COLOR_Y values
 								// do, it works without them...
 								switch (message.toString()) {
@@ -164,7 +174,7 @@ public class Main {
 
 						case "room": // whole room
 							switch (command) {
-							case "on":
+							case STATE_COMMAND_NAME:
 								switch (message.toString()) {
 								case "0":
 								case "1":
@@ -175,7 +185,7 @@ public class Main {
 									return;
 								}
 								break;
-							case "dim":
+							case DIM_COMMAND_NAME:
 								json.put(DIMMER, Integer.parseInt(message.toString()));
 								json.put(TRANSITION_TIME, 3);
 								break;
@@ -219,8 +229,8 @@ public class Main {
 					// TODO Auto-generated method stub
 				}
 			});
-			mqttClient.subscribe("TRÅDFRI/bulb/+/control/+");
-			mqttClient.subscribe("TRÅDFRI/room/+/control/+");
+			mqttClient.subscribe("TRADFRI/bulb/+/control/+");
+			mqttClient.subscribe("TRADFRI/room/+/control/+");
 		} catch (MqttException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -236,7 +246,7 @@ public class Main {
 				}
 			}
 		};
-		executor.scheduleAtFixedRate(command, 120, 120, TimeUnit.SECONDS);
+		executor.scheduleAtFixedRate(command, SAMPLE_PERIOD, SAMPLE_PERIOD, TimeUnit.SECONDS);
 	}
 
 	private void discover() {
@@ -385,12 +395,21 @@ public class Main {
 								return; // skip this lamp for now
 							}
 							int state = light.getInt(ONOFF);
-							String topicBulbOnOff = "TRÅDFRI/bulb/" + name + "/state/on";
-							String topicBulbDim = "TRÅDFRI/bulb/" + name + "/state/dim";
-							String topicBulbTemp = "TRÅDFRI/bulb/" + name + "/state/temperature";
+							
+							// Modification by Sotirios
+							String stateStr = "";
+							if (state == 1)
+								stateStr = ON_NAME;
+							else if (state == 0)
+								stateStr = OFF_NAME;
+                                                        
+							String topicBulbOnOff = PUBLISH_PREFIX + name + STATE_NAME;
+							String topicBulbDim = PUBLISH_PREFIX + name + DIM_NAME;
+							String topicBulbTemp = PUBLISH_PREFIX + name + COLOR_NAME;
 
 							MqttMessage messageBulbOnOff = new MqttMessage();
-							messageBulbOnOff.setPayload(Integer.toString(state).getBytes());
+							//messageBulbOnOff.setPayload(Integer.toString(state).getBytes());
+							messageBulbOnOff.setPayload(stateStr.getBytes());
 							if (retainedQueues) {
 								messageBulbOnOff.setRetained(true);
 							}
@@ -400,6 +419,9 @@ public class Main {
 							if (light.has(DIMMER)) {
 								messageBulbDim = new MqttMessage();
 								int dim = light.getInt(DIMMER);
+								// Added by Sotirios
+								dim = Math.round((float) dim*100/255);
+								//
 								messageBulbDim.setPayload(Integer.toString(dim).getBytes());
 								if (retainedQueues) {
 									messageBulbDim.setRetained(true);
@@ -414,6 +436,21 @@ public class Main {
 							if (light.has(COLOR)) {
 								messageBulbTemp = new MqttMessage();
 								String temperature = light.getString(COLOR);
+								
+							// Switch added by Sotirios
+							switch (temperature) {
+								case COLOR_COLD:
+									temperature = "cold";
+									break;
+								case COLOR_NORMAL:
+									temperature = "normal";
+									break;
+								case COLOR_WARM:
+									temperature = "warm";
+									break;
+								default:
+									break;
+							}
 								messageBulbTemp.setPayload(temperature.getBytes());
 								if (retainedQueues) {
 									messageBulbTemp.setRetained(true);
@@ -436,8 +473,8 @@ public class Main {
 							System.out.println("Processing Room " + name + ll + " " + response.getResponseText());
 							id2room.put(json.getInt(INSTANCE_ID), name);
 
-							String topicRoomOnOff = "TRÅDFRI/room/" + name + "/state/on";
-							String topicRoomDim = "TRÅDFRI/room/" + name + "/state/dim";
+							String topicRoomOnOff = ROOM_PUBLISH_PREFIX + name + STATE_NAME;
+							String topicRoomDim = ROOM_PUBLISH_PREFIX + name + DIM_NAME;
 
 							MqttMessage messageRoomOnOff = new MqttMessage();
 							int state = json.getInt(ONOFF);
@@ -500,10 +537,11 @@ public class Main {
 	 */
 	public static void main(String[] args) throws InterruptedException {
 		Options options = new Options();
-		options.addOption("psk", true, "The Secret on the base of the gateway");
-		options.addOption("ip", true, "The IP address of the gateway");
-		options.addOption("broker", true, "MQTT URL");
-		options.addOption("retained", "Topics are retained");
+		//options.addOption("coapId", true, "The API user created for the gateway");
+		//options.addOption("psk", true, "The Secret for the user created");
+		//options.addOption("ip", true, "The IP address of the gateway");
+		//options.addOption("broker", true, "MQTT URL");
+		//options.addOption("retained", "Topics are retained");
 		options.addOption("help", "Shows this usage information");
 
 		CommandLineParser parser = new DefaultParser();
@@ -515,10 +553,16 @@ public class Main {
 			e.printStackTrace();
 		}
 
-		String psk = cmd.getOptionValue("psk");
-		String ip = cmd.getOptionValue("ip");
-		String broker = cmd.getOptionValue("broker");
-		boolean retained = cmd.hasOption("retained");
+		//String coapId = cmd.getOptionValue("coapId");
+		//String psk = cmd.getOptionValue("psk");
+		//String ip = cmd.getOptionValue("ip");
+		//String broker = cmd.getOptionValue("broker");
+		//boolean retained = cmd.hasOption("retained");
+		String coapId = COAP_ID;
+		String psk = COAP_ID_PSK;
+		String ip = TRADFRI_IP;
+		String broker = BROKER_IP;
+		boolean retained = RETAINED_MESSAGES;
 		boolean help = cmd.hasOption("help");
 
 		if (help || psk == null || ip == null || broker == null) {
@@ -527,7 +571,7 @@ public class Main {
 			System.exit(1);
 		}
 
-		Main m = new Main(psk, ip, broker, retained);
+		Main m = new Main(coapId, psk, ip, broker, retained);
 		m.discover();
 	}
 
