@@ -13,7 +13,7 @@ Trådfri-to-MQTT is a software bridge implemented in Java that allows control an
 
 First we need to create a preshared key. This key can then be used to authenticate yourself: Please note: this key will expire if you don't use it in 6 weeks from activation. Every time you use this key the time will be extended accordingly.
 
-'coap-client -m post -u "Client_identity" -k "$GATEWAYCODE" -e '{"9090":"$IDENTITY"}' "coaps://$IP_ADDRESS:5684/15011/9063"'
+`coap-client -m post -u "Client_identity" -k "$GATEWAYCODE" -e '{"9090":"$IDENTITY"}' "coaps://$IP_ADDRESS:5684/15011/9063"`
 
 where GATEWAYCODE = the security code under the gateway and IDENTITY = the selected api username
 
