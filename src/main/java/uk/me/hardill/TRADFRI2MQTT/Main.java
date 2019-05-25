@@ -172,6 +172,34 @@ public class Main {
 							Main.this.set("coaps://" + Main.this.ip + "//" + DEVICES + "/" + id2device.getKey(entityName), payload);
 							break;
 
+						case "plug": // socket/plug
+						JSONObject settings2 = new JSONObject();
+						JSONArray array2 = new JSONArray();
+						array2.put(settings2);
+						json.put(LIGHT, array2);
+
+						switch (command) {
+						case STATE_COMMAND_NAME:
+							switch (message.toString()) {
+							case OFF_NAME:
+								settings2.put(ONOFF, 0);
+								break;
+							case ON_NAME:
+								settings2.put(ONOFF, 1);
+								break;
+							default:
+								System.err.println("Invalid OnOff value '" + message.toString() + "'for plug " + entityName);
+								return;
+							}
+							break;
+						default:
+							System.err.println("Invalid command supplied: " + command);
+							return;
+						}
+						payload = json.toString();
+						Main.this.set("coaps://" + Main.this.ip + "//" + DEVICES + "/" + id2device.getKey(entityName), payload);
+						break;
+
 						case "room": // whole room
 							switch (command) {
 							case STATE_COMMAND_NAME:
@@ -231,6 +259,7 @@ public class Main {
 			});
 			mqttClient.subscribe("TRADFRI/bulb/+/control/+");
 			mqttClient.subscribe("TRADFRI/room/+/control/+");
+			mqttClient.subscribe("TRADFRI/plug/+/control/+");
 		} catch (MqttException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
@@ -459,6 +488,42 @@ public class Main {
 							} else { // just fyi for the user. maybe add further handling later
 								System.out.println("Bulb '" + name + "' doesn't support color temperature");
 							}
+
+							}else if (json.has(TYPE) && json.getInt(TYPE) == TYPE_PLUG && json.has(PLUG)) { // socket/plug
+								String socket = "";
+								try {
+									socket = " " + json.getJSONObject("3").getString("1");
+									if (socket.startsWith("TRADFRI socket ")) {
+										socket = " " + socket.split(" ")[3];
+									}
+								} catch (JSONException e) {}
+								System.out.println("Processing" + socket + " Socket " + name + " " + response.getResponseText());
+								
+								id2device.put(ID, name);
+	
+								JSONObject plug = json.getJSONArray(PLUG).getJSONObject(0);
+	
+								if (!plug.has(ONOFF)) {
+									System.err.println("Socket '" + name + "' has no On/Off value (probably no power on socket)");
+									return; // skip this lamp for now
+								}
+								int state = plug.getInt(ONOFF);
+								// Modification by Sotiris
+								String stateStr = "";
+								if (state == 1)
+									stateStr = ON_NAME;
+								else if (state == 0)
+									stateStr = OFF_NAME;
+
+								String newName = name;
+								String topicSocketOnOff = PUBLISH_PREFIX + newName;
+	
+								MqttMessage messageSocketOnOff = new MqttMessage();
+								messageSocketOnOff.setPayload(stateStr.getBytes());
+								if (retainedQueues) {
+									messageSocketOnOff.setRetained(true);
+								}
+								mqttClient.publish(topicSocketOnOff, messageSocketOnOff);
 
 						} else if (json.has(HS_ACCESSORY_LINK)) { // groups have this entry
 							JSONArray lamps = null;

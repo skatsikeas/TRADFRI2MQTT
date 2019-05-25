@@ -1,10 +1,29 @@
 # TRADFRI2MQTT
 
-Trådfri-to-MQTT is a software bridge implemented in Java that allows control and monitoring of the IKEA Trådfri lightning system via MQTT messages
+Trådfri-to-MQTT is a software bridge implemented in Java that allows control and monitoring of the IKEA Trådfri system via MQTT messages
+
+# Prerequisites
+
+1. Install coap-client
+
+- Download the `install-coap-client.sh` from github, make it executable and run it
+- pip install pip --upgrade && sudo pip install tqdm (to install the tqdm which is required)
+
+2. Create authentication credentials
+
+First we need to create a preshared key. This key can then be used to authenticate yourself: Please note: this key will expire if you don't use it in 6 weeks from activation. Every time you use this key the time will be extended accordingly.
+
+'coap-client -m post -u "Client_identity" -k "$GATEWAYCODE" -e '{"9090":"$IDENTITY"}' "coaps://$IP_ADDRESS:5684/15011/9063"'
+
+where GATEWAYCODE = the security code under the gateway and IDENTITY = the selected api username
+
+3. Update those values on the config.java file
+
+4. Build the .jar file by doing 'mvn package'
 
 # Invocation
 
-java -jar TRADFRI2MQTT-X.X.X-SNAPSHOT.jar
+'java -jar TRADFRI2MQTT-X.X.X-SNAPSHOT.jar'
 
 All the parameters (Gateway's IP, ID, security key and MQTT broker's IP and credentials) should be specified in the config.java file before building the application
 Some additional constants (like the default publish and subscribe topics as well as the messages could be also specified from there)
@@ -18,6 +37,7 @@ Publishes state messages on topics like this:
  - home/lights/Living Room Light/color
  - home/room/Living Room/state
  - home/room/Living Room/brightness
+ - home/PlugsName
 
 Subscribes to control messages on topics like this:
 
@@ -27,6 +47,7 @@ Subscribes to control messages on topics like this:
  - TRADFRI/room/Living Room/control/state
  - TRADFRI/room/Living Room/control/brightness
  - TRADFRI/room/Living Room/control/mood
+ - TRADFRI/PlugsName/control/state
 
 publish "ON"/"OFF" to the `state` topic to turn the light off/on respectively
 
