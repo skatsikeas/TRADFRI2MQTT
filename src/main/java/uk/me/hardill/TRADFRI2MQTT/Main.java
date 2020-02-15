@@ -204,19 +204,23 @@ public class Main {
 							switch (command) {
 							case STATE_COMMAND_NAME:
 								switch (message.toString()) {
-								case "0":
-								case "1":
-									json.put(ONOFF, Integer.parseInt(message.toString()));
+								case OFF_NAME:
+									json.put(ONOFF, 0);
 									break;
+								case ON_NAME:
+									json.put(ONOFF, 1);
 								default:
 									System.err.println("Invalid OnOff value '" + message.toString() + "'for room " + entityName);
 									return;
 								}
 								break;
 							case DIM_COMMAND_NAME:
-								json.put(DIMMER, Integer.parseInt(message.toString()));
-								json.put(TRANSITION_TIME, 3);
+								int dimval = Integer.parseInt(message.toString());
+								dimval = Math.round((float) dimval*255/100);
+								json.put(DIMMER, Math.min(DIMMER_MAX, Math.max(DIMMER_MIN, dimval)));
+								json.put(TRANSITION_TIME, 3); // transition in seconds
 								break;
+
 							case "mood":
 								String moodName = message.toString();
 								int roomID = id2room.getKey(entityName);
