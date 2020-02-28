@@ -209,6 +209,7 @@ public class Main {
 									break;
 								case ON_NAME:
 									json.put(ONOFF, 1);
+									break;
 								default:
 									System.err.println("Invalid OnOff value '" + message.toString() + "'for room " + entityName);
 									return;
